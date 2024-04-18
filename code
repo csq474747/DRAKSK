@@ -1,0 +1,167 @@
+import pandas as pd
+import numpy as np
+import sklearn.tree as tree
+import sklearn.metrics as metrics
+import matplotlib.pyplot as plt
+from mlxtend import classifier
+from scipy import stats
+from lifelines.utils import concordance_index
+from collections import Counter
+from sklearn.ensemble import BaggingClassifier, ExtraTreesClassifier, GradientBoostingClassifier, VotingClassifier, \
+    StackingClassifier, RandomForestClassifier
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.linear_model import LogisticRegression, LinearRegression, RidgeClassifier, RidgeClassifierCV
+from sklearn.metrics import accuracy_score, recall_score, f1_score, precision_score
+from numpy import interp
+from sklearn.metrics import roc_curve, auc
+from sklearn.model_selection import train_test_split, StratifiedKFold, RepeatedStratifiedKFold
+from sklearn.model_selection import GridSearchCV
+from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC, SVR
+from xgboost import XGBClassifier
+
+plt.figure(figsize=(5, 5))
+def get_acc(y, y_hat):
+    return sum(yi == yi_hat for yi, yi_hat in zip(y, y_hat)) / len(y)
+def get_mean_ci(name):
+alpha =0.95  
+df = len(name)-1
+    ci = stats.t.interval(alpha, df, loc=np.mean(name), scale=stats.sem(name))
+    mean=np.mean(name)
+    return mean,ci
+mean_accs=[]
+mean_recalls=[]
+mean_precisions=[]
+mean_f1s=[]
+mean_aucs=[]
+for morbidity in ["label"]:
+df = pd.read_csv("D:/新模型/PubChem10M_SMILES_BPE_450k_output_data.csv", encoding='utf-8', header=0, index_col=0,
+data = df.values
+y = df[{morbidity}].values
+X = df.iloc[:, 2:-1].values
+cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=1,
+                            random_state = 36851234)
+models = []
+models.append(('rf1',RandomForestClassifier(max_depth=94,n_estimators=276,random_state=1234)))
+    models.append(('xgboost1',XGBClassifier(learning_rate=0.10782348
+                                    ,
+                                    subsample=0.98317209
+                                    ,
+                                    gamma=0.50560709
+                                    ,
+                                    alpha=0.5969653
+                                    ,
+
+                                    reg_lambda=0.25953661
+                                    )))
+    models.append(('svc1',SVC(probability=True
+                          ,
+                          C=5.47697326)))
+    models.append(('ANN2',ANN()
+                  ))
+lr = LogisticRegression()
+    ensemble =StackingClassifier(estimators=models,final_estimator=lr,n_jobs=-1)
+    tprs = []
+    aucs = []
+    accs = []
+    f1s = []
+    recalls = []
+    precisions = []
+    c_indexs = []
+    mean_fpr = np.linspace(0, 1, 100)
+    i = 0
+    for train, test in cv.split(X, y):
+        ensemble.fit(X[train], y[train])
+        probas_ =ensemble.predict_proba(X[test])
+        probas_ = pd.DataFrame(probas_)
+        predict_ = ensemble.predict(X[test])
+        predict_ = pd.DataFrame(predict_)
+        y_test=pd.DataFrame(y[test])
+        y_test.to_csv(f"CEMGAS-Control_{morbidity}_ture{i}.csv", encoding='utf-8-sig')
+        probas_.to_csv(f"CEMGAS-Control_{morbidity}_score{i}.csv", encoding='utf-8-sig')
+        predict_.to_csv(f"CEMGAS-Control_{morbidity}_pre{i}.csv", encoding='utf-8-sig')
+        # Compute ROC curve and area the curve
+        fpr, tpr, thresholds = roc_curve(y_true=y[test], y_score=probas_[1])
+        # print('DT精确度...')
+        # print(metrics.classification_report(y_true=y[test], y_pred=predict_))
+        # print('DT的AUC...')
+        # # 构造 roc 曲线
+        # print('AUC = %.4f' % metrics.auc(fpr, tpr))
+        tprs.append(interp(mean_fpr, fpr, tpr))
+        tprs[-1][0] = 0.0
+        roc_auc = auc(fpr, tpr)
+        c_index = concordance_index(y[test], predict_)
+        acc = accuracy_score(y[test],predict_)
+        f1 = f1_score(y[test],predict_,average='weighted')
+        precision = precision_score(y[test],predict_,average='weighted')
+        recall = recall_score(y[test],predict_, average='weighted')
+        aucs=np.append(aucs,roc_auc)
+        accs=np.append(accs,acc)
+        f1s=np.append(f1s,f1)
+        c_indexs=np.append(c_indexs,c_index)
+        precisions=np.append(precisions,precision)
+        recalls=np.append(recalls,recall)
+        # plt.plot(fpr, tpr, lw=1, alpha=0.1)
+        alls=np.array(list(zip(aucs,accs,recalls,f1s,precisions,c_indexs)))
+        model=ensemble.fit(X[train], y[train])
+        
+import joblib
+        # joblib 中的 dump 函数用于下载模型
+        joblib.dump(value=model, filename=f'CEMGAS-Control_{morbidity}_{i}.m')
+        i += 1
+
+    alls = np.array(list(zip(aucs, accs, recalls, f1s, precisions,c_indexs)))
+    alls1 = pd.DataFrame(alls)
+    alls1.to_csv(f"CEMGAS-Control_{morbidity}_evaluate.csv", encoding='utf-8-sig')
+    # print(alls)
+    df = len(aucs) - 1
+    alpha =0.95  # 是设定的可信区间, 可以理解为可信度; 数值是百分数,取值范围(0,1)
+    ci = stats.t.interval(alpha, df, loc=np.mean(aucs), scale=stats.sem(aucs))  # ci是置信区间
+    def get_mean_ci(name):
+        alpha = 0.95  # 是设定的可信区间, 可以理解为可信度; 数值是百分数,取值范围(0,1)
+        df = len(name) - 1
+        ci = stats.t.interval(alpha, df, loc=np.mean(name), scale=stats.sem(name))
+        mean = np.mean(name)
+        return mean, ci
+    mean_recall, ci_recall = get_mean_ci(recalls)
+    mean_precision, ci_precision = get_mean_ci(precisions)
+    mean_acc, ci_acc = get_mean_ci(accs)
+    mean_f1, ci_f1 = get_mean_ci(f1s)
+    mean_c_index,ci_c_index = get_mean_ci(c_indexs)
+    print("acc以及置信区间：", mean_acc, ci_acc)
+    print("recall以及置信区间：", mean_recall, ci_recall)
+    print("precision以及置信区间：", mean_precision, ci_precision)
+    print("f1以及置信区间：", mean_f1, ci_f1)
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    print("AUC以及置信区间：",mean_auc,ci)
+    print("c-index以及置信区间：",mean_c_index,ci_c_index)
+    std_auc = np.std(aucs)
+    plt.plot(mean_fpr, mean_tpr,
+             label=fr'{morbidity} (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+             lw=2, alpha=.8)
+
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    # plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+    #              label=r'$\pm$ 1 std. dev.')
+
+    mean_accs = np.append(mean_accs, mean_acc)
+    mean_recalls = np.append(mean_recalls, mean_recall)
+    mean_precisions = np.append(mean_precisions, mean_precision)
+    mean_f1s = np.append(mean_f1s, mean_f1)
+    mean_aucs = np.append(mean_aucs, mean_auc)
+all_means = np.array(list(zip(mean_accs, mean_recalls, mean_precisions, mean_f1s, mean_aucs)))
+all_means1 = pd.DataFrame(all_means)
+all_means1.to_csv(f"CEMGAS-Control_mean_evaluate.csv", encoding='utf-8-sig')
+plt.plot([-0.01, 1.01], [-0.01, 1.01], linestyle='--', lw=2, color='r'
+             , alpha=.8)
+plt.xlim([-0.01, 1.01])
+plt.ylim([-0.01, 1.01])
+plt.xlabel('1-specificity')
+plt.ylabel('Sensitivity')
+plt.title('CEMGAS-Control ROC curve')
+plt.legend(loc="lower right")
+plt.show()
